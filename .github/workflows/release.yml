@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.0). Used as -Pversion= and as the published version.'
+        required: true
+      publish_modrinth:
+        description: 'Publish to Modrinth'
+        type: boolean
+        default: true
+      publish_curseforge:
+        description: 'Publish to CurseForge'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew build -Pversion=${{ steps.version.outputs.version }}
+
+      - name: Generate changelog
+        run: |
+          CURRENT_TAG="v${{ steps.version.outputs.version }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            git log --pretty=format:"- %s" HEAD > changelog.txt
+          else
+            git log --pretty=format:"- %s" "${PREV_TAG}..HEAD" > changelog.txt
+          fi
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p artifacts
+          cp fabric/build/libs/soft_leaves-fabric-*[0-9].jar artifacts/
+          cp neoforge/build/libs/soft_leaves-neoforge-*[0-9].jar artifacts/
+          cp changelog.txt artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Soft Leaves v${{ steps.version.outputs.version }}
+          body_path: changelog.txt
+          files: |
+            artifacts/soft_leaves-fabric-*[0-9].jar
+            artifacts/soft_leaves-neoforge-*[0-9].jar
+
+  publish-modrinth:
+    needs: build
+    if: ${{ github.event_name == 'push' || inputs.publish_modrinth }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: Publish Fabric to Modrinth
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          modrinth-id: ${{ vars.MODRINTH_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: artifacts/soft_leaves-fabric-*[0-9].jar
+          name: Soft Leaves ${{ needs.build.outputs.version }} (Fabric)
+          version: ${{ needs.build.outputs.version }}+fabric
+          version-type: release
+          loaders: fabric
+          game-versions: 26.2
+          java: 25
+          changelog-file: artifacts/changelog.txt
+
+      - name: Publish NeoForge to Modrinth
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          modrinth-id: ${{ vars.MODRINTH_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: artifacts/soft_leaves-neoforge-*[0-9].jar
+          name: Soft Leaves ${{ needs.build.outputs.version }} (NeoForge)
+          version: ${{ needs.build.outputs.version }}+neoforge
+          version-type: release
+          loaders: neoforge
+          game-versions: 26.2
+          java: 25
+          changelog-file: artifacts/changelog.txt
+
+  publish-curseforge:
+    needs: build
+    if: ${{ github.event_name == 'push' || inputs.publish_curseforge }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: Publish Fabric to CurseForge
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          curseforge-id: ${{ vars.CURSEFORGE_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          files: artifacts/soft_leaves-fabric-*[0-9].jar
+          name: Soft Leaves ${{ needs.build.outputs.version }} (Fabric)
+          version: ${{ needs.build.outputs.version }}+fabric
+          version-type: release
+          loaders: fabric
+          game-versions: 26.2
+          java: 25
+          changelog-file: artifacts/changelog.txt
+
+      - name: Publish NeoForge to CurseForge
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          curseforge-id: ${{ vars.CURSEFORGE_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          files: artifacts/soft_leaves-neoforge-*[0-9].jar
+          name: Soft Leaves ${{ needs.build.outputs.version }} (NeoForge)
+          version: ${{ needs.build.outputs.version }}+neoforge
+          version-type: release
+          loaders: neoforge
+          game-versions: 26.2
+          java: 25
+          changelog-file: artifacts/changelog.txt
