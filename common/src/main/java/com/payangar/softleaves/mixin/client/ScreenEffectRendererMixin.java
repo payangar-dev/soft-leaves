@@ -6,12 +6,12 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.color.block.BlockTintSource;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.Lightmap;
 import net.minecraft.client.renderer.ScreenEffectRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -65,11 +65,19 @@ public abstract class ScreenEffectRendererMixin {
         if (tint != null) {
             rgb = tint.colorInWorld(state, this.minecraft.level, eyePos);
         }
-        float brightness = Lightmap.getBrightness(this.minecraft.level.dimensionType(), this.minecraft.level.getMaxLocalRawBrightness(eyePos));
-        int r = (int) ((rgb >> 16 & 0xFF) * brightness);
-        int g = (int) ((rgb >> 8 & 0xFF) * brightness);
-        int b = (int) ((rgb & 0xFF) * brightness);
-        int color = 0xFF000000 | r << 16 | g << 8 | b;
+        // Vanilla lights a face with the light of the block it points toward
+        // (sky above the canopy, shadow below it) and shades it by direction.
+        // Sampling per-face neighbour light reproduces that look.
+        int lightUp = softleaves$packedLight(eyePos.above());
+        int lightDown = softleaves$packedLight(eyePos.below());
+        int lightNorth = softleaves$packedLight(eyePos.north());
+        int lightSouth = softleaves$packedLight(eyePos.south());
+        int lightWest = softleaves$packedLight(eyePos.west());
+        int lightEast = softleaves$packedLight(eyePos.east());
+        int colorUp = softleaves$shade(rgb, 1.0F);
+        int colorDown = softleaves$shade(rgb, 0.5F);
+        int colorNS = softleaves$shade(rgb, 0.8F);
+        int colorEW = softleaves$shade(rgb, 0.6F);
 
         // The screen-effect pass draws in view space: counter-rotate the camera,
         // then place the cube at its world position relative to the camera.
@@ -81,17 +89,33 @@ public abstract class ScreenEffectRendererMixin {
         float u1 = sprite.getU1();
         float v0 = sprite.getV0();
         float v1 = sprite.getV1();
-        collector.submitCustomGeometry(poseStack, RenderTypes.blockScreenEffect(sprite.atlasLocation()), (pose, builder) -> {
+        // Depth-tested world-text render type: the faces integrate with the scene
+        // instead of drawing over it (blockScreenEffect ignores the depth buffer).
+        collector.submitCustomGeometry(poseStack, RenderTypes.text(sprite.atlasLocation()), (pose, builder) -> {
             Matrix4f m = pose.pose();
             float lo = 0.001F;
             float hi = 0.999F;
-            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, hi, lo, lo, hi, lo, u0, v0, u1, v1, color);
-            softleaves$face(builder, m, lo, lo, hi, hi, lo, hi, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, color);
-            softleaves$face(builder, m, lo, lo, lo, lo, lo, hi, lo, hi, hi, lo, hi, lo, u0, v0, u1, v1, color);
-            softleaves$face(builder, m, hi, lo, lo, hi, lo, hi, hi, hi, hi, hi, hi, lo, u0, v0, u1, v1, color);
-            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, lo, hi, lo, lo, hi, u0, v0, u1, v1, color);
-            softleaves$face(builder, m, lo, hi, lo, hi, hi, lo, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, color);
+            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, hi, lo, lo, hi, lo, u0, v0, u1, v1, colorNS, lightNorth);
+            softleaves$face(builder, m, lo, lo, hi, hi, lo, hi, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorNS, lightSouth);
+            softleaves$face(builder, m, lo, lo, lo, lo, lo, hi, lo, hi, hi, lo, hi, lo, u0, v0, u1, v1, colorEW, lightWest);
+            softleaves$face(builder, m, hi, lo, lo, hi, lo, hi, hi, hi, hi, hi, hi, lo, u0, v0, u1, v1, colorEW, lightEast);
+            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, lo, hi, lo, lo, hi, u0, v0, u1, v1, colorDown, lightDown);
+            softleaves$face(builder, m, lo, hi, lo, hi, hi, lo, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorUp, lightUp);
         });
+    }
+
+    @Unique
+    private int softleaves$packedLight(BlockPos pos) {
+        return this.minecraft.level.getBrightness(LightLayer.SKY, pos) << 20
+            | this.minecraft.level.getBrightness(LightLayer.BLOCK, pos) << 4;
+    }
+
+    @Unique
+    private static int softleaves$shade(int rgb, float shade) {
+        int r = (int) ((rgb >> 16 & 0xFF) * shade);
+        int g = (int) ((rgb >> 8 & 0xFF) * shade);
+        int b = (int) ((rgb & 0xFF) * shade);
+        return 0xFF000000 | r << 16 | g << 8 | b;
     }
 
     @Unique
@@ -99,15 +123,15 @@ public abstract class ScreenEffectRendererMixin {
         VertexConsumer builder, Matrix4f m,
         float x1, float y1, float z1, float x2, float y2, float z2,
         float x3, float y3, float z3, float x4, float y4, float z4,
-        float u0, float v0, float u1, float v1, int color
+        float u0, float v0, float u1, float v1, int color, int light
     ) {
-        builder.addVertex(m, x1, y1, z1).setUv(u0, v1).setColor(color);
-        builder.addVertex(m, x2, y2, z2).setUv(u1, v1).setColor(color);
-        builder.addVertex(m, x3, y3, z3).setUv(u1, v0).setColor(color);
-        builder.addVertex(m, x4, y4, z4).setUv(u0, v0).setColor(color);
-        builder.addVertex(m, x4, y4, z4).setUv(u0, v0).setColor(color);
-        builder.addVertex(m, x3, y3, z3).setUv(u1, v0).setColor(color);
-        builder.addVertex(m, x2, y2, z2).setUv(u1, v1).setColor(color);
-        builder.addVertex(m, x1, y1, z1).setUv(u0, v1).setColor(color);
+        builder.addVertex(m, x1, y1, z1).setUv(u0, v1).setColor(color).setLight(light);
+        builder.addVertex(m, x2, y2, z2).setUv(u1, v1).setColor(color).setLight(light);
+        builder.addVertex(m, x3, y3, z3).setUv(u1, v0).setColor(color).setLight(light);
+        builder.addVertex(m, x4, y4, z4).setUv(u0, v0).setColor(color).setLight(light);
+        builder.addVertex(m, x4, y4, z4).setUv(u0, v0).setColor(color).setLight(light);
+        builder.addVertex(m, x3, y3, z3).setUv(u1, v0).setColor(color).setLight(light);
+        builder.addVertex(m, x2, y2, z2).setUv(u1, v1).setColor(color).setLight(light);
+        builder.addVertex(m, x1, y1, z1).setUv(u0, v1).setColor(color).setLight(light);
     }
 }
