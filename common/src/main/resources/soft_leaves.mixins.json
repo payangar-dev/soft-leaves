@@ -10,9 +10,11 @@
     "WalkNodeEvaluatorMixin"
   ],
   "client": [
+    "client.AbstractClientPlayerMixin",
     "client.CherryProviderMixin",
     "client.PaleOakProviderMixin",
     "client.ParticleAccessor",
+    "client.ScreenEffectRendererMixin",
     "client.TintedLeavesProviderMixin"
   ],
   "server": [],
