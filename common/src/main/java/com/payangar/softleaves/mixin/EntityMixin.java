@@ -32,6 +32,11 @@ public abstract class EntityMixin implements LeafDrag {
     private static final double SOFTLEAVES$BURIED_MULTIPLIER = 1.8;
     @Unique
     private static final double SOFTLEAVES$MAX_DRAG_BURIED = 0.90;
+    // Sneaking while falling is a dive: the entity slips between the leaves
+    // instead of being caught by them. What is left of the drag after this
+    // multiplier is the light resistance of the dive.
+    @Unique
+    private static final double SOFTLEAVES$DIVE_DRAG_MULTIPLIER = 0.30;
     // Below this speed the movement is too subtle to rustle or shake off leaves;
     // low enough that sneaking through foliage still sheds the occasional leaf.
     @Unique
@@ -91,6 +96,11 @@ public abstract class EntityMixin implements LeafDrag {
         boolean entering = self.tickCount != this.softleaves$lastLeafDragTick + 1;
         this.softleaves$lastLeafDragTick = self.tickCount;
 
+        // Only mid-fall: sneaking on the ground keeps costing speed, as it should.
+        // The shift key state, not the crouching pose, so a dive still counts when
+        // the entity has no room to actually crouch.
+        boolean diving = self.isShiftKeyDown() && movement.y < 0.0 && !self.onGround();
+
         boolean buried = level.getBlockState(self.blockPosition()).getBlock() instanceof LeavesBlock
             && level.getBlockState(BlockPos.containing(self.getEyePosition())).getBlock() instanceof LeavesBlock;
         double drag = SOFTLEAVES$BASE_DRAG + SOFTLEAVES$DRAG_PER_SPEED * speed;
@@ -98,9 +108,14 @@ public abstract class EntityMixin implements LeafDrag {
             drag *= SOFTLEAVES$BURIED_MULTIPLIER;
         }
         drag = Math.min(buried ? SOFTLEAVES$MAX_DRAG_BURIED : SOFTLEAVES$MAX_DRAG, drag);
+        if (diving) {
+            drag *= SOFTLEAVES$DIVE_DRAG_MULTIPLIER;
+        }
         self.setDeltaMovement(delta.scale(1.0 - drag));
-        // Momentum absorbed by the foliage also softens the eventual landing.
-        if (movement.y < 0.0 && self.fallDistance > 0.0) {
+        // Momentum absorbed by the foliage also softens the eventual landing, but
+        // a dive cuts the canopy open instead of resting on it: the fall distance
+        // is kept whole, so diving in from too high still hurts on impact.
+        if (!diving && movement.y < 0.0 && self.fallDistance > 0.0) {
             self.fallDistance = self.fallDistance * (1.0 - drag);
         }
 
