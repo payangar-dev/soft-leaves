@@ -11,6 +11,7 @@ import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -27,11 +28,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * From inside a leaves block the player sees nothing of it: its faces all point
- * outward and get backface-culled. Re-renders the six faces of the block the
- * camera is in, world-anchored (counter-rotating the view-space pose), with the
- * leaf sprite, the block's biome tint and the local light level. Faces are
- * emitted with both windings and slightly shrunk, so the result is robust to
- * the pipeline's cull mode and never z-fights neighbouring leaf faces.
+ * outward and get backface-culled. Re-renders the faces of the block the camera
+ * is in, world-anchored (counter-rotating the view-space pose), with the leaf
+ * sprite, the block's biome tint and the local light level. Faces are emitted
+ * with both windings and slightly shrunk, so the result is robust to the
+ * pipeline's cull mode and never z-fights neighbouring leaf faces.
  */
 @Mixin(ScreenEffectRenderer.class)
 public abstract class ScreenEffectRendererMixin {
@@ -55,6 +56,19 @@ public abstract class ScreenEffectRendererMixin {
         BlockPos eyePos = BlockPos.containing(camPos);
         BlockState state = this.minecraft.level.getBlockState(eyePos);
         if (!(state.getBlock() instanceof LeavesBlock)) {
+            return;
+        }
+
+        // A leaves neighbour already draws its own face on the shared plane, so
+        // ours would only double the texture over it. Emit a face only where the
+        // camera block borders something else.
+        boolean drawNorth = softleaves$needsFace(state, eyePos, Direction.NORTH);
+        boolean drawSouth = softleaves$needsFace(state, eyePos, Direction.SOUTH);
+        boolean drawWest = softleaves$needsFace(state, eyePos, Direction.WEST);
+        boolean drawEast = softleaves$needsFace(state, eyePos, Direction.EAST);
+        boolean drawDown = softleaves$needsFace(state, eyePos, Direction.DOWN);
+        boolean drawUp = softleaves$needsFace(state, eyePos, Direction.UP);
+        if (!drawNorth && !drawSouth && !drawWest && !drawEast && !drawDown && !drawUp) {
             return;
         }
 
@@ -95,13 +109,37 @@ public abstract class ScreenEffectRendererMixin {
             Matrix4f m = pose.pose();
             float lo = 0.001F;
             float hi = 0.999F;
-            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, hi, lo, lo, hi, lo, u0, v0, u1, v1, colorNS, lightNorth);
-            softleaves$face(builder, m, lo, lo, hi, hi, lo, hi, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorNS, lightSouth);
-            softleaves$face(builder, m, lo, lo, lo, lo, lo, hi, lo, hi, hi, lo, hi, lo, u0, v0, u1, v1, colorEW, lightWest);
-            softleaves$face(builder, m, hi, lo, lo, hi, lo, hi, hi, hi, hi, hi, hi, lo, u0, v0, u1, v1, colorEW, lightEast);
-            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, lo, hi, lo, lo, hi, u0, v0, u1, v1, colorDown, lightDown);
-            softleaves$face(builder, m, lo, hi, lo, hi, hi, lo, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorUp, lightUp);
+            if (drawNorth) {
+                softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, hi, lo, lo, hi, lo, u0, v0, u1, v1, colorNS, lightNorth);
+            }
+            if (drawSouth) {
+                softleaves$face(builder, m, lo, lo, hi, hi, lo, hi, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorNS, lightSouth);
+            }
+            if (drawWest) {
+                softleaves$face(builder, m, lo, lo, lo, lo, lo, hi, lo, hi, hi, lo, hi, lo, u0, v0, u1, v1, colorEW, lightWest);
+            }
+            if (drawEast) {
+                softleaves$face(builder, m, hi, lo, lo, hi, lo, hi, hi, hi, hi, hi, hi, lo, u0, v0, u1, v1, colorEW, lightEast);
+            }
+            if (drawDown) {
+                softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, lo, hi, lo, lo, hi, u0, v0, u1, v1, colorDown, lightDown);
+            }
+            if (drawUp) {
+                softleaves$face(builder, m, lo, hi, lo, hi, hi, lo, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorUp, lightUp);
+            }
         });
+    }
+
+    @Unique
+    private boolean softleaves$needsFace(BlockState state, BlockPos pos, Direction direction) {
+        BlockState neighbour = this.minecraft.level.getBlockState(pos.relative(direction));
+        if (!(neighbour.getBlock() instanceof LeavesBlock)) {
+            return true;
+        }
+        // Fast graphics culls the faces between two leaves blocks, so there the
+        // neighbour draws nothing back at us and the camera block still needs its
+        // own face to surround the head.
+        return neighbour.skipRendering(state, direction.getOpposite());
     }
 
     @Unique
