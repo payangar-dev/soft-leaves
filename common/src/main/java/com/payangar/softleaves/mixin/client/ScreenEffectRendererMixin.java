@@ -41,7 +41,7 @@ public abstract class ScreenEffectRendererMixin {
     @Final
     private Minecraft minecraft;
 
-    @Inject(method = "submit", at = @At("TAIL"))
+    @Inject(method = "renderScreenEffect", at = @At("TAIL"))
     private void softleaves$submitLeafInterior(boolean isFirstPerson, boolean isSleeping, float partialTicks, SubmitNodeCollector collector, boolean hideGui, CallbackInfo ci) {
         if (!isFirstPerson || isSleeping) {
             return;
@@ -51,7 +51,7 @@ public abstract class ScreenEffectRendererMixin {
             return;
         }
 
-        Camera camera = this.minecraft.gameRenderer.mainCamera();
+        Camera camera = this.minecraft.gameRenderer.getMainCamera();
         Vec3 camPos = camera.position();
         BlockPos eyePos = BlockPos.containing(camPos);
         BlockState state = this.minecraft.level.getBlockState(eyePos);
