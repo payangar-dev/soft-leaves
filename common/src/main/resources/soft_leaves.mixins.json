@@ -4,6 +4,7 @@
   "package": "com.payangar.softleaves.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
+    "BlockCollisionsMixin",
     "EntityMixin",
     "LeavesBlockMixin",
     "UntintedParticleLeavesBlockAccessor",
