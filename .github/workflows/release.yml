@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      mc_version: ${{ steps.version.outputs.mc_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,11 +35,20 @@ jobs:
       - name: Resolve version
         id: version
         run: |
+          # Tags carry the Minecraft version so both branches can ship the same mod
+          # version: v1.1.1+26.2 and v1.1.1+26.1.2. Only the part before the plus
+          # is the mod version; the game version comes from the branch itself, so
+          # gradle.properties stays the single source of truth for it.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            MOD_VERSION="${{ inputs.version }}"
           else
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            MOD_VERSION="${GITHUB_REF_NAME#v}"
+            MOD_VERSION="${MOD_VERSION%%+*}"
           fi
+          MC_VERSION=$(sed -n 's/^minecraft_version=//p' gradle.properties)
+          echo "version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "mc_version=$MC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing mod $MOD_VERSION for Minecraft $MC_VERSION"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -54,8 +64,16 @@ jobs:
 
       - name: Generate changelog
         run: |
-          CURRENT_TAG="v${{ steps.version.outputs.version }}"
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1)
+          # The tag itself, not "v" plus the mod version: they differ now that tags
+          # carry the game version.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CURRENT_TAG="$GITHUB_REF_NAME"
+          else
+            CURRENT_TAG="v${{ steps.version.outputs.version }}"
+          fi
+          # Only tags reachable from this branch, or a release cut from one branch
+          # would diff against the other branch's tag.
+          PREV_TAG=$(git tag --merged HEAD --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1)
           if [ -z "$PREV_TAG" ]; then
             git log --pretty=format:"- %s" HEAD > changelog.txt
           else
@@ -79,7 +97,7 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          name: Soft Leaves v${{ steps.version.outputs.version }}
+          name: Soft Leaves v${{ steps.version.outputs.version }} for Minecraft ${{ steps.version.outputs.mc_version }}
           body_path: changelog.txt
           files: |
             artifacts/soft_leaves-fabric-*[0-9].jar
@@ -102,11 +120,11 @@ jobs:
           modrinth-id: ${{ vars.MODRINTH_ID }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           files: artifacts/soft_leaves-fabric-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} (Fabric)
-          version: ${{ needs.build.outputs.version }}+fabric
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (Fabric)
+          version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-fabric
           version-type: release
           loaders: fabric
-          game-versions: 26.2
+          game-versions: ${{ needs.build.outputs.mc_version }}
           java: 25
           changelog-file: artifacts/changelog.txt
 
@@ -116,11 +134,11 @@ jobs:
           modrinth-id: ${{ vars.MODRINTH_ID }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           files: artifacts/soft_leaves-neoforge-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} (NeoForge)
-          version: ${{ needs.build.outputs.version }}+neoforge
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (NeoForge)
+          version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-neoforge
           version-type: release
           loaders: neoforge
-          game-versions: 26.2
+          game-versions: ${{ needs.build.outputs.mc_version }}
           java: 25
           changelog-file: artifacts/changelog.txt
 
@@ -141,11 +159,11 @@ jobs:
           curseforge-id: ${{ vars.CURSEFORGE_ID }}
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           files: artifacts/soft_leaves-fabric-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} (Fabric)
-          version: ${{ needs.build.outputs.version }}+fabric
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (Fabric)
+          version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-fabric
           version-type: release
           loaders: fabric
-          game-versions: 26.2
+          game-versions: ${{ needs.build.outputs.mc_version }}
           java: 25
           changelog-file: artifacts/changelog.txt
 
@@ -155,10 +173,10 @@ jobs:
           curseforge-id: ${{ vars.CURSEFORGE_ID }}
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           files: artifacts/soft_leaves-neoforge-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} (NeoForge)
-          version: ${{ needs.build.outputs.version }}+neoforge
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (NeoForge)
+          version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-neoforge
           version-type: release
           loaders: neoforge
-          game-versions: 26.2
+          game-versions: ${{ needs.build.outputs.mc_version }}
           java: 25
           changelog-file: artifacts/changelog.txt
