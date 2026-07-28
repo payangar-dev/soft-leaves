@@ -7,7 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.ScreenEffectRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -104,7 +104,7 @@ public abstract class ScreenEffectRendererMixin {
         float v1 = sprite.getV1();
         // Depth-tested world-text render type: the faces integrate with the scene
         // instead of drawing over it (blockScreenEffect ignores the depth buffer).
-        collector.submitCustomGeometry(poseStack, RenderTypes.text(sprite.atlasLocation()), (pose, builder) -> {
+        collector.submitCustomGeometry(poseStack, RenderType.text(sprite.atlasLocation()), (pose, builder) -> {
             Matrix4f m = pose.pose();
             float lo = 0.001F;
             float hi = 0.999F;
