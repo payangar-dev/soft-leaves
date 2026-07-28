@@ -51,7 +51,7 @@ public abstract class LeavesBlockMixin extends Block {
     }
 
     @Override
-    protected void entityInside(BlockState state, Level level, BlockPos pos, Entity entity, InsideBlockEffectApplier effectApplier, boolean isPrecise) {
+    protected void entityInside(BlockState state, Level level, BlockPos pos, Entity entity, InsideBlockEffectApplier effectApplier) {
         ((LeafDrag) entity).softleaves$applyLeafDrag(state, level, pos);
     }
 }
