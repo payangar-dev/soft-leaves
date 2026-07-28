@@ -4,7 +4,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.color.block.BlockTintSource;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.ScreenEffectRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -42,8 +41,9 @@ public abstract class ScreenEffectRendererMixin {
     private Minecraft minecraft;
 
     @Inject(method = "renderScreenEffect", at = @At("TAIL"))
-    private void softleaves$submitLeafInterior(boolean isFirstPerson, boolean isSleeping, float partialTicks, SubmitNodeCollector collector, boolean hideGui, CallbackInfo ci) {
-        if (!isFirstPerson || isSleeping) {
+    private void softleaves$submitLeafInterior(boolean isSleeping, float partialTicks, SubmitNodeCollector collector, CallbackInfo ci) {
+        // 1.21.x passes no first-person flag: vanilla reads the camera type itself.
+        if (isSleeping || !this.minecraft.options.getCameraType().isFirstPerson()) {
             return;
         }
         LocalPlayer player = this.minecraft.player;
@@ -72,12 +72,11 @@ public abstract class ScreenEffectRendererMixin {
             return;
         }
 
-        TextureAtlasSprite sprite = this.minecraft.getModelManager().getBlockStateModelSet().getParticleMaterial(state).sprite();
+        TextureAtlasSprite sprite = this.minecraft.getBlockRenderer().getBlockModelShaper().getParticleIcon(state);
 
-        int rgb = 0xFFFFFF;
-        BlockTintSource tint = this.minecraft.getBlockColors().getTintSource(state, 0);
-        if (tint != null) {
-            rgb = tint.colorInWorld(state, this.minecraft.level, eyePos);
+        int rgb = this.minecraft.getBlockColors().getColor(state, this.minecraft.level, eyePos, 0);
+        if (rgb == -1) {
+            rgb = 0xFFFFFF;
         }
         // Vanilla lights a face with the light of the block it points toward
         // (sky above the canopy, shadow below it) and shades it by direction.
