@@ -14,17 +14,16 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 /**
- * Makes foliage transparent to physics, and to physics only. Every collision
- * query the game runs funnels through this iterator: entity movement, ground
- * support, the emptiness checks, and particle collision. Dropping leaves here
- * is what lets everything walk and fall through them.
+ * Complements the pass-through {@code LeavesBlockMixin} answers on the block
+ * itself, for the callers that reach this iterator with a context carrying no
+ * mover and would therefore be told foliage is solid. Particle collision is the
+ * one that matters: it queries with a bare context, so leaves flung inside a
+ * canopy would freeze against it.
  * <p>
- * The block keeps its vanilla collision shape, which matters because vanilla
- * reads that shape to answer "does this block fill its cube?" and derives from
- * it the ambient occlusion leaves cast, the gate that keeps falling-leaf
- * particles to the underside of a canopy, and the motion-blocking heightmap the
- * weather renders against. Lying to the block instead of to the iterator is
- * what used to make foliage render differently from vanilla.
+ * This is deliberately not the primary mechanism. Optimisation mods replace
+ * vanilla's collision path with their own sweeper, which never reaches this call
+ * site, so foliage has to be passable on the block or it is not passable at all
+ * for them.
  */
 @Mixin(BlockCollisions.class)
 public abstract class BlockCollisionsMixin {
