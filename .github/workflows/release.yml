@@ -27,6 +27,9 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       mc_version: ${{ steps.version.outputs.mc_version }}
+      java_version: ${{ steps.version.outputs.java_version }}
+      game_versions: ${{ steps.version.outputs.game_versions }}
+      game_versions_display: ${{ steps.version.outputs.game_versions_display }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,15 +49,29 @@ jobs:
             MOD_VERSION="${MOD_VERSION%%+*}"
           fi
           MC_VERSION=$(sed -n 's/^minecraft_version=//p' gradle.properties)
+          JAVA_VERSION=$(sed -n 's/^java_version=//p' gradle.properties)
+          GAME_VERSIONS=$(sed -n 's/^game_versions=//p' gradle.properties)
+          # A branch can publish for several game versions (e.g. 1.21.6 1.21.7
+          # 1.21.8); mc-publish wants one per line, humans want "first-last".
+          FIRST=${GAME_VERSIONS%% *}
+          LAST=${GAME_VERSIONS##* }
+          if [ "$FIRST" = "$LAST" ]; then DISPLAY="$FIRST"; else DISPLAY="$FIRST-$LAST"; fi
           echo "version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
           echo "mc_version=$MC_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing mod $MOD_VERSION for Minecraft $MC_VERSION"
+          echo "java_version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+          echo "game_versions_display=$DISPLAY" >> "$GITHUB_OUTPUT"
+          {
+            echo "game_versions<<GVEOF"
+            echo "$GAME_VERSIONS" | tr ' ' '\n'
+            echo "GVEOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing mod $MOD_VERSION for Minecraft $DISPLAY"
 
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 25
+          java-version: ${{ steps.version.outputs.java_version }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
@@ -72,8 +89,16 @@ jobs:
             CURRENT_TAG="v${{ steps.version.outputs.version }}"
           fi
           # Only tags reachable from this branch, or a release cut from one branch
-          # would diff against the other branch's tag.
-          PREV_TAG=$(git tag --merged HEAD --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1)
+          # would diff against the other branch's tag. Restrict to tags for this
+          # branch's game version: branches inherit the other scheme's tags through
+          # their fork point, and version sort ranks +26.x above +1.21.x.
+          MC_ESC=$(printf '%s' "${{ steps.version.outputs.mc_version }}" | sed 's/\./\\./g')
+          PREV_TAG=$(git tag --merged HEAD --sort=-v:refname | grep -E "\+${MC_ESC}$" | grep -vFx "$CURRENT_TAG" | head -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            # First release on a fresh branch: diff against the newest inherited
+            # tag so the changelog only covers the commits since the fork point.
+            PREV_TAG=$(git tag --merged HEAD --sort=-v:refname | grep -vFx "$CURRENT_TAG" | head -n 1)
+          fi
           if [ -z "$PREV_TAG" ]; then
             git log --pretty=format:"- %s" HEAD > changelog.txt
           else
@@ -97,7 +122,7 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
-          name: Soft Leaves v${{ steps.version.outputs.version }} for Minecraft ${{ steps.version.outputs.mc_version }}
+          name: Soft Leaves v${{ steps.version.outputs.version }} for Minecraft ${{ steps.version.outputs.game_versions_display }}
           body_path: changelog.txt
           files: |
             artifacts/soft_leaves-fabric-*[0-9].jar
@@ -120,12 +145,13 @@ jobs:
           modrinth-id: ${{ vars.MODRINTH_ID }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           files: artifacts/soft_leaves-fabric-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (Fabric)
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.game_versions_display }} (Fabric)
           version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-fabric
           version-type: release
           loaders: fabric
-          game-versions: ${{ needs.build.outputs.mc_version }}
-          java: 25
+          game-versions: ${{ needs.build.outputs.game_versions }}
+          game-version-filter: releases
+          java: ${{ needs.build.outputs.java_version }}
           changelog-file: artifacts/changelog.txt
 
       - name: Publish NeoForge to Modrinth
@@ -134,12 +160,13 @@ jobs:
           modrinth-id: ${{ vars.MODRINTH_ID }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           files: artifacts/soft_leaves-neoforge-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (NeoForge)
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.game_versions_display }} (NeoForge)
           version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-neoforge
           version-type: release
           loaders: neoforge
-          game-versions: ${{ needs.build.outputs.mc_version }}
-          java: 25
+          game-versions: ${{ needs.build.outputs.game_versions }}
+          game-version-filter: releases
+          java: ${{ needs.build.outputs.java_version }}
           changelog-file: artifacts/changelog.txt
 
   publish-curseforge:
@@ -159,12 +186,13 @@ jobs:
           curseforge-id: ${{ vars.CURSEFORGE_ID }}
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           files: artifacts/soft_leaves-fabric-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (Fabric)
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.game_versions_display }} (Fabric)
           version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-fabric
           version-type: release
           loaders: fabric
-          game-versions: ${{ needs.build.outputs.mc_version }}
-          java: 25
+          game-versions: ${{ needs.build.outputs.game_versions }}
+          game-version-filter: releases
+          java: ${{ needs.build.outputs.java_version }}
           changelog-file: artifacts/changelog.txt
 
       - name: Publish NeoForge to CurseForge
@@ -173,10 +201,11 @@ jobs:
           curseforge-id: ${{ vars.CURSEFORGE_ID }}
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           files: artifacts/soft_leaves-neoforge-*[0-9].jar
-          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.mc_version }} (NeoForge)
+          name: Soft Leaves ${{ needs.build.outputs.version }} for ${{ needs.build.outputs.game_versions_display }} (NeoForge)
           version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.mc_version }}-neoforge
           version-type: release
           loaders: neoforge
-          game-versions: ${{ needs.build.outputs.mc_version }}
-          java: 25
+          game-versions: ${{ needs.build.outputs.game_versions }}
+          game-version-filter: releases
+          java: ${{ needs.build.outputs.java_version }}
           changelog-file: artifacts/changelog.txt
