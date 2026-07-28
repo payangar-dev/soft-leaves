@@ -11,15 +11,14 @@ import net.minecraft.client.renderer.ScreenEffectRenderer;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -36,29 +35,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ScreenEffectRenderer.class)
 public abstract class ScreenEffectRendererMixin {
 
-    @Shadow
-    @Final
-    private Minecraft minecraft;
-
-    @Shadow
-    @Final
-    private MultiBufferSource bufferSource;
-
     @Inject(method = "renderScreenEffect", at = @At("TAIL"))
-    private void softleaves$submitLeafInterior(boolean isSleeping, float partialTicks, CallbackInfo ci) {
-        // 1.21.x passes no first-person flag: vanilla reads the camera type itself.
-        if (isSleeping || !this.minecraft.options.getCameraType().isFirstPerson()) {
+    private static void softleaves$submitLeafInterior(Minecraft minecraft, PoseStack basePoseStack, MultiBufferSource bufferSource, CallbackInfo ci) {
+        // 1.21.5's renderScreenEffect is static and does no gating itself: check
+        // the camera and player state here.
+        if (!minecraft.options.getCameraType().isFirstPerson()) {
             return;
         }
-        LocalPlayer player = this.minecraft.player;
-        if (player == null || player.isSpectator() || this.minecraft.level == null) {
+        LocalPlayer player = minecraft.player;
+        if (player == null || player.isSleeping() || player.isSpectator() || minecraft.level == null) {
             return;
         }
 
-        Camera camera = this.minecraft.gameRenderer.getMainCamera();
-        Vec3 camPos = camera.position();
+        Camera camera = minecraft.gameRenderer.getMainCamera();
+        Vec3 camPos = camera.getPosition();
         BlockPos eyePos = BlockPos.containing(camPos);
-        BlockState state = this.minecraft.level.getBlockState(eyePos);
+        BlockState state = minecraft.level.getBlockState(eyePos);
         if (!(state.getBlock() instanceof LeavesBlock)) {
             return;
         }
@@ -66,31 +58,32 @@ public abstract class ScreenEffectRendererMixin {
         // A leaves neighbour already draws its own face on the shared plane, so
         // ours would only double the texture over it. Emit a face only where the
         // camera block borders something else.
-        boolean drawNorth = softleaves$needsFace(state, eyePos, Direction.NORTH);
-        boolean drawSouth = softleaves$needsFace(state, eyePos, Direction.SOUTH);
-        boolean drawWest = softleaves$needsFace(state, eyePos, Direction.WEST);
-        boolean drawEast = softleaves$needsFace(state, eyePos, Direction.EAST);
-        boolean drawDown = softleaves$needsFace(state, eyePos, Direction.DOWN);
-        boolean drawUp = softleaves$needsFace(state, eyePos, Direction.UP);
+        Level level = minecraft.level;
+        boolean drawNorth = softleaves$needsFace(level, state, eyePos, Direction.NORTH);
+        boolean drawSouth = softleaves$needsFace(level, state, eyePos, Direction.SOUTH);
+        boolean drawWest = softleaves$needsFace(level, state, eyePos, Direction.WEST);
+        boolean drawEast = softleaves$needsFace(level, state, eyePos, Direction.EAST);
+        boolean drawDown = softleaves$needsFace(level, state, eyePos, Direction.DOWN);
+        boolean drawUp = softleaves$needsFace(level, state, eyePos, Direction.UP);
         if (!drawNorth && !drawSouth && !drawWest && !drawEast && !drawDown && !drawUp) {
             return;
         }
 
-        TextureAtlasSprite sprite = this.minecraft.getBlockRenderer().getBlockModelShaper().getParticleIcon(state);
+        TextureAtlasSprite sprite = minecraft.getBlockRenderer().getBlockModelShaper().getParticleIcon(state);
 
-        int rgb = this.minecraft.getBlockColors().getColor(state, this.minecraft.level, eyePos, 0);
+        int rgb = minecraft.getBlockColors().getColor(state, level, eyePos, 0);
         if (rgb == -1) {
             rgb = 0xFFFFFF;
         }
         // Vanilla lights a face with the light of the block it points toward
         // (sky above the canopy, shadow below it) and shades it by direction.
         // Sampling per-face neighbour light reproduces that look.
-        int lightUp = softleaves$packedLight(eyePos.above());
-        int lightDown = softleaves$packedLight(eyePos.below());
-        int lightNorth = softleaves$packedLight(eyePos.north());
-        int lightSouth = softleaves$packedLight(eyePos.south());
-        int lightWest = softleaves$packedLight(eyePos.west());
-        int lightEast = softleaves$packedLight(eyePos.east());
+        int lightUp = softleaves$packedLight(level, eyePos.above());
+        int lightDown = softleaves$packedLight(level, eyePos.below());
+        int lightNorth = softleaves$packedLight(level, eyePos.north());
+        int lightSouth = softleaves$packedLight(level, eyePos.south());
+        int lightWest = softleaves$packedLight(level, eyePos.west());
+        int lightEast = softleaves$packedLight(level, eyePos.east());
         int colorUp = softleaves$shade(rgb, 1.0F);
         int colorDown = softleaves$shade(rgb, 0.5F);
         int colorNS = softleaves$shade(rgb, 0.8F);
@@ -110,7 +103,7 @@ public abstract class ScreenEffectRendererMixin {
         // instead of drawing over it (blockScreenEffect ignores the depth buffer).
         // Pre-1.21.9 there is no submission collector: emit into the pass's own
         // buffer source, which the game renderer flushes after this method.
-        VertexConsumer builder = this.bufferSource.getBuffer(RenderType.text(sprite.atlasLocation()));
+        VertexConsumer builder = bufferSource.getBuffer(RenderType.text(sprite.atlasLocation()));
         Matrix4f m = poseStack.last().pose();
         float lo = 0.001F;
         float hi = 0.999F;
@@ -135,8 +128,8 @@ public abstract class ScreenEffectRendererMixin {
     }
 
     @Unique
-    private boolean softleaves$needsFace(BlockState state, BlockPos pos, Direction direction) {
-        BlockState neighbour = this.minecraft.level.getBlockState(pos.relative(direction));
+    private static boolean softleaves$needsFace(Level level, BlockState state, BlockPos pos, Direction direction) {
+        BlockState neighbour = level.getBlockState(pos.relative(direction));
         if (!(neighbour.getBlock() instanceof LeavesBlock)) {
             return true;
         }
@@ -147,9 +140,9 @@ public abstract class ScreenEffectRendererMixin {
     }
 
     @Unique
-    private int softleaves$packedLight(BlockPos pos) {
-        return this.minecraft.level.getBrightness(LightLayer.SKY, pos) << 20
-            | this.minecraft.level.getBrightness(LightLayer.BLOCK, pos) << 4;
+    private static int softleaves$packedLight(Level level, BlockPos pos) {
+        return level.getBrightness(LightLayer.SKY, pos) << 20
+            | level.getBrightness(LightLayer.BLOCK, pos) << 4;
     }
 
     @Unique
