@@ -1,6 +1,6 @@
 # Soft Leaves
 
-A tiny quality-of-life mod for Minecraft 1.21.9-1.21.10 (NeoForge + Fabric): leaves no longer block movement.
+A tiny quality-of-life mod for Minecraft 1.21.6-1.21.8 (NeoForge + Fabric): leaves no longer block movement.
 
 - **Pass through foliage** as if it were air, with a slight drag.
 - **Speed-scaled resistance**: falling into a canopy slows you down far more than strolling through a bush. Vertical momentum you lose in the leaves also reduces your accumulated fall distance, so trees soften your landing.
