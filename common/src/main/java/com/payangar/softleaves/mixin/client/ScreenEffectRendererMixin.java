@@ -5,9 +5,9 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.ScreenEffectRenderer;
-import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.ScreenEffectRenderer;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -40,8 +40,12 @@ public abstract class ScreenEffectRendererMixin {
     @Final
     private Minecraft minecraft;
 
+    @Shadow
+    @Final
+    private MultiBufferSource bufferSource;
+
     @Inject(method = "renderScreenEffect", at = @At("TAIL"))
-    private void softleaves$submitLeafInterior(boolean isSleeping, float partialTicks, SubmitNodeCollector collector, CallbackInfo ci) {
+    private void softleaves$submitLeafInterior(boolean isSleeping, float partialTicks, CallbackInfo ci) {
         // 1.21.x passes no first-person flag: vanilla reads the camera type itself.
         if (isSleeping || !this.minecraft.options.getCameraType().isFirstPerson()) {
             return;
@@ -104,29 +108,30 @@ public abstract class ScreenEffectRendererMixin {
         float v1 = sprite.getV1();
         // Depth-tested world-text render type: the faces integrate with the scene
         // instead of drawing over it (blockScreenEffect ignores the depth buffer).
-        collector.submitCustomGeometry(poseStack, RenderType.text(sprite.atlasLocation()), (pose, builder) -> {
-            Matrix4f m = pose.pose();
-            float lo = 0.001F;
-            float hi = 0.999F;
-            if (drawNorth) {
-                softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, hi, lo, lo, hi, lo, u0, v0, u1, v1, colorNS, lightNorth);
-            }
-            if (drawSouth) {
-                softleaves$face(builder, m, lo, lo, hi, hi, lo, hi, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorNS, lightSouth);
-            }
-            if (drawWest) {
-                softleaves$face(builder, m, lo, lo, lo, lo, lo, hi, lo, hi, hi, lo, hi, lo, u0, v0, u1, v1, colorEW, lightWest);
-            }
-            if (drawEast) {
-                softleaves$face(builder, m, hi, lo, lo, hi, lo, hi, hi, hi, hi, hi, hi, lo, u0, v0, u1, v1, colorEW, lightEast);
-            }
-            if (drawDown) {
-                softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, lo, hi, lo, lo, hi, u0, v0, u1, v1, colorDown, lightDown);
-            }
-            if (drawUp) {
-                softleaves$face(builder, m, lo, hi, lo, hi, hi, lo, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorUp, lightUp);
-            }
-        });
+        // Pre-1.21.9 there is no submission collector: emit into the pass's own
+        // buffer source, which the game renderer flushes after this method.
+        VertexConsumer builder = this.bufferSource.getBuffer(RenderType.text(sprite.atlasLocation()));
+        Matrix4f m = poseStack.last().pose();
+        float lo = 0.001F;
+        float hi = 0.999F;
+        if (drawNorth) {
+            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, hi, lo, lo, hi, lo, u0, v0, u1, v1, colorNS, lightNorth);
+        }
+        if (drawSouth) {
+            softleaves$face(builder, m, lo, lo, hi, hi, lo, hi, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorNS, lightSouth);
+        }
+        if (drawWest) {
+            softleaves$face(builder, m, lo, lo, lo, lo, lo, hi, lo, hi, hi, lo, hi, lo, u0, v0, u1, v1, colorEW, lightWest);
+        }
+        if (drawEast) {
+            softleaves$face(builder, m, hi, lo, lo, hi, lo, hi, hi, hi, hi, hi, hi, lo, u0, v0, u1, v1, colorEW, lightEast);
+        }
+        if (drawDown) {
+            softleaves$face(builder, m, lo, lo, lo, hi, lo, lo, hi, lo, hi, lo, lo, hi, u0, v0, u1, v1, colorDown, lightDown);
+        }
+        if (drawUp) {
+            softleaves$face(builder, m, lo, hi, lo, hi, hi, lo, hi, hi, hi, lo, hi, hi, u0, v0, u1, v1, colorUp, lightUp);
+        }
     }
 
     @Unique
