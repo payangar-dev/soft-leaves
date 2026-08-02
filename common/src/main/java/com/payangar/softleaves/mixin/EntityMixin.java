@@ -2,6 +2,7 @@ package com.payangar.softleaves.mixin;
 
 import com.payangar.softleaves.LeafDrag;
 import com.payangar.softleaves.LeafParticles;
+import com.payangar.softleaves.SoftLeavesConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.server.level.ServerLevel;
@@ -32,6 +33,10 @@ public abstract class EntityMixin implements LeafDrag {
     private static final double SOFTLEAVES$BURIED_MULTIPLIER = 1.8;
     @Unique
     private static final double SOFTLEAVES$MAX_DRAG_BURIED = 0.90;
+    // The configured resistance scales the whole drag, so it has its own cap above the
+    // tuned ones: foliage must keep letting the mover through, never hold it in place.
+    @Unique
+    private static final double SOFTLEAVES$MAX_DRAG_CONFIGURED = 0.95;
     // Sneaking while falling is a dive: the entity slips between the leaves
     // instead of being caught by them. What is left of the drag after this
     // multiplier is the light resistance of the dive.
@@ -111,6 +116,7 @@ public abstract class EntityMixin implements LeafDrag {
         if (diving) {
             drag *= SOFTLEAVES$DIVE_DRAG_MULTIPLIER;
         }
+        drag = Math.min(SOFTLEAVES$MAX_DRAG_CONFIGURED, drag * SoftLeavesConfig.resistance());
         self.setDeltaMovement(delta.scale(1.0 - drag));
         // Momentum absorbed by the foliage also softens the eventual landing, but
         // a dive cuts the canopy open instead of resting on it: the fall distance
