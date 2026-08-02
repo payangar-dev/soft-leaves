@@ -1,12 +1,15 @@
 package com.payangar.softleaves;
 
+import java.nio.file.Path;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Blocks;
 
 public class SoftLeavesInit {
 
-    public static void init() {
+    public static void init(Path configDir) {
+        SoftLeavesConfig.load(configDir);
+
         // Startup self-check, and a support diagnostic in user logs. Foliage is made
         // passable in the collision iterator, not on the block, so the block must
         // still report the vanilla full cube: that is the answer vanilla derives
